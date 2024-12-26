@@ -14,7 +14,9 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 STATE_FILE_NAME: str = "best model (val F1 = 0.44633).pth"
 DATA_SPLIT_RANDOM_STATE = 12345
 
-HIDDEN_LAYER_SIZES: tuple = (200,)  # (128, 64, 32)
+IN_LAYER_SIZE = 21
+HIDDEN_LAYER_SIZES: tuple = (200,)  # (128, 128, 128, 128, 128, 128, 128, 64, 32)
+OUT_LAYER_SIZE = 1
 POS_WEIGHT_AMOUNT = 86 / 14
 DROPOUT_AMOUNT = 0.3
 INIT_LEARNING_RATE = 0.001
@@ -108,7 +110,7 @@ def f1score(_confusion_matrix):
 
 
 class DiabetesBinaryNN(nn.Module):
-    def __init__(self, input_size=21, hidden_layers_sizes=HIDDEN_LAYER_SIZES):
+    def __init__(self, input_size=IN_LAYER_SIZE, hidden_layers_sizes=HIDDEN_LAYER_SIZES):
         super().__init__()
         layers: list = [nn.Linear(in_features=input_size, out_features=hidden_layers_sizes[0])]
         if not TRY_TO_OVERFIT:
@@ -124,7 +126,7 @@ class DiabetesBinaryNN(nn.Module):
             layers.append(nn.ReLU())
             if not TRY_TO_OVERFIT:
                 layers.append(nn.Dropout(DROPOUT_AMOUNT))
-        layers.append(nn.Linear(in_features=hidden_layers_sizes[-1], out_features=1))
+        layers.append(nn.Linear(in_features=hidden_layers_sizes[-1], out_features=OUT_LAYER_SIZE))
 
         self.network = nn.Sequential(*layers)
 
@@ -133,7 +135,7 @@ class DiabetesBinaryNN(nn.Module):
 
 
 # noinspection PyShadowingNames
-def train_model(model, X_train, X_val, y_train, y_val, epochs, device):
+def train_model(model: DiabetesBinaryNN, X_train, X_val, y_train, y_val, epochs, device):
     # Set up loss function (with binary class weights)
     pos_weight = torch.tensor([POS_WEIGHT_AMOUNT]).to(device)  # Keeping your original class weights
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
@@ -143,6 +145,7 @@ def train_model(model, X_train, X_val, y_train, y_val, epochs, device):
         optimizer = torch.optim.Adam(model.parameters(), lr=INIT_LEARNING_RATE)
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=INIT_LEARNING_RATE, weight_decay=INIT_WEIGHT_DECAY)
+    optimizer = torch.optim.SGD(model.parameters(), lr=INIT_LEARNING_RATE, weight_decay=INIT_WEIGHT_DECAY)
 
     # Set up learning rate scheduler
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,
@@ -191,14 +194,14 @@ def train_model(model, X_train, X_val, y_train, y_val, epochs, device):
                 # Learning rate scheduling
                 # scheduler.step(val_loss)
 
-                if best_f1:  # Best F1 score check
+                if best_f1:  # Best validation F1 score check
                     patience_counter = 0
                     torch.save(model.state_dict(), f"models/best model (val F1 = {f1v:.5f}).pth")
                     # save_model(model.state_dict(),
                     #            optimizer.state_dict(),
                     #            f"model/best model (val F1 = {f1v:.5f}).pth")
                     best_f1 = False
-                elif val_loss < best_val_loss:  # Best loss check
+                elif val_loss < best_val_loss:  # Best validation loss check
                     best_val_loss = val_loss
                     patience_counter = 0
                     torch.save(model.state_dict(), f"models/best model (val loss = {val_loss:.5f}).pth")
